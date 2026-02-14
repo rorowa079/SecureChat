@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SecureChat Client</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+    #chat-log { height: 320px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; margin: 10px 0; background: #f9f9f9; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    input, button { padding: 10px; font-size: 1rem; }
+    input { flex: 1; }
+    #status { font-weight: bold; color: orange; }
+    .msg { margin: 6px 0; }
+    .sys { color:#666; }
+    .me { color: blue; text-align:right; }
+    .other { color: green; }
+  </style>
+</head>
+<body>
+  <h2>SecureChat <span id="status">🔴 Disconnected</span></h2>
+
+  <div class="row">
+    <input id="user" placeholder="username" />
+    <input id="pass" type="password" placeholder="password " />
+    <button id="loginBtn">Login</button>
+  </div>
+
+  <div id="chat-log"></div>
+
+  <div class="row">
+    <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+    <button id="sendBtn">Send</button>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <input type="file" id="fileInput">
+    <button id="sendFileBtn">Send File</button>
+  </div>
+
+<script>
+  const SERVER = "wss://192.168.1.162:8765"; // <-- server IP
+  const statusSpan = document.getElementById('status');
+  const chatLog = document.getElementById('chat-log');
+  const input = document.getElementById('message-input');
+
+  const userEl = document.getElementById('user');
+  const passEl = document.getElementById('pass');
+  const loginBtn = document.getElementById('loginBtn');
+
+  const sendBtn = document.getElementById('sendBtn');
+  const fileInput = document.getElementById('fileInput');
+  const sendFileBtn = document.getElementById('sendFileBtn');
+
+  let authed = false;
+
+  function addLog(text, cls="msg") {
+    const div = document.createElement('div');
+    div.className = cls;
+    div.innerHTML = text;
+    chatLog.appendChild(div);
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  const socket = new WebSocket(SERVER);
+
+  socket.onopen = () => {
+    statusSpan.innerText = "🟡 Connected (not logged in)";
+    statusSpan.style.color = "orange";
+    addLog("<span class='sys'>System:</span> Socket connected. Please login.", "msg sys");
+  };
+
+  socket.onmessage = (event) => {
+    let msg;
+    try { msg = JSON.parse(event.data); } catch { return; }
+
+    if (msg.type === "auth_required") {
+      authed = false;
+      statusSpan.innerText = "🟡 Connected (login required)";
+      statusSpan.style.color = "orange";
+      addLog("<span class='sys'>System:</span> Login required.", "msg sys");
+      return;
+    }
+
+    if (msg.type === "auth_ok") {
+      authed = true;
+      statusSpan.innerText = "🟢 Logged in";
+      statusSpan.style.color = "green";
+      addLog(`<span class='sys'>System:</span> Logged in as <b>${msg.username}</b>`, "msg sys");
+      return;
+    }
+
+    if (msg.type === "auth_error") {
+      authed = false;
+      addLog(`<span class='sys'>Auth:</span> ${msg.message}`, "msg sys");
+      return;
+    }
+
+    if (msg.type === "rate_limited") {
+      addLog(`<span class='sys'>Rate limit:</span> ${msg.message}`, "msg sys");
+      return;
+    }
+
+    if (msg.type === "system") {
+      addLog(`<span class='sys'>System:</span> ${msg.message}`, "msg sys");
+      return;
+    }
+
+    if (msg.type === "chat") {
+      addLog(`<span class='other'><b>${msg.from}:</b> ${msg.message}</span>`, "msg other");
+      return;
+    }
+
+    if (msg.type === "file") {
+      // Create a download link from base64
+      const a = document.createElement("a");
+      a.href = "data:application/octet-stream;base64," + msg.data;
+      a.download = msg.filename || "file.bin";
+      a.textContent = `Download file from ${msg.from}: ${a.download}`;
+
+      const div = document.createElement("div");
+      div.className = "msg other";
+      div.appendChild(a);
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
+      return;
+    }
+
+    if (msg.type === "error") {
+      addLog(`<span class='sys'>Error:</span> ${msg.message}`, "msg sys");
+    }
+  };
+
+  socket.onclose = () => {
+    statusSpan.innerText = "🔴 Disconnected";
+    statusSpan.style.color = "red";
+    authed = false;
+  };
+
+  socket.onerror = (e) => {
+    console.error(e);
+    addLog("<span class='sys'>System:</span> WebSocket error. Check console.", "msg sys");
+  };
+
+  loginBtn.onclick = () => {
+    socket.send(JSON.stringify({
+      type: "login",
+      username: userEl.value.trim(),
+      password: passEl.value
+    }));
+  };
+
+  function sendChat() {
+    const text = input.value.trim();
+    if (!text) return;
+    if (!authed) {
+      addLog("<span class='sys'>System:</span> You must login first.", "msg sys");
+      return;
+    }
+    socket.send(JSON.stringify({ type: "chat", message: text }));
+    addLog(`<span class='me'><b>Me:</b> ${text}</span>`, "msg me");
+    input.value = "";
+  }
+
+  sendBtn.onclick = sendChat;
+  input.addEventListener("keypress", (e) => { if (e.key === "Enter") sendChat(); });
+
+  sendFileBtn.onclick = async () => {
+    if (!authed) {
+      addLog("<span class='sys'>System:</span> Login first to send files.", "msg sys");
+      return;
+    }
+    const f = fileInput.files[0];
+    if (!f) return;
+
+    // Keep it POC-small (base64 grows size)
+    if (f.size > 1_000_000) {
+      addLog("<span class='sys'>System:</span> File too big for POC (max 1MB).", "msg sys");
+      return;
+    }
+
+    const buf = await f.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const b64 = btoa(binary);
+
+    socket.send(JSON.stringify({
+      type: "file",
+      filename: f.name,
+      data: b64
+    }));
+
+    addLog(`<span class='me'><b>Me:</b> sent file ${f.name} (${f.size} bytes)</span>`, "msg me");
+    fileInput.value = "";
+  };
+</script>
+</body>
+</html>
+
