@@ -1,199 +1,417 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>SecureChat Client</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureChat</title>
   <style>
-    body { font-family: sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
-    #chat-log { height: 320px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; margin: 10px 0; background: #f9f9f9; }
-    .row { display:flex; gap:10px; flex-wrap:wrap; }
-    input, button { padding: 10px; font-size: 1rem; }
-    input { flex: 1; }
-    #status { font-weight: bold; color: orange; }
-    .msg { margin: 6px 0; }
-    .sys { color:#666; }
-    .me { color: blue; text-align:right; }
-    .other { color: green; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #ffffff; height: 100vh; }
+    .hidden { display: none !important; }
+    #loginScreen, #chatScreen { height: 100vh; width: 100%; }
+    #loginScreen { display: flex; align-items: center; justify-content: center; }
+    .login-card { width: 360px; background: white; border-radius: 12px; padding: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+    .login-card h1 { margin-top: 0; margin-bottom: 16px; font-size: 24px; }
+    .login-card label { display: block; margin-top: 12px; margin-bottom: 6px; font-weight: bold; }
+    .login-card input { width: 100%; padding: 10px; border: 1px solid #cfd6dd; border-radius: 8px; font-size: 14px; }
+    .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    .btn-row button { flex: 1; padding: 10px; border: none; border-radius: 8px; color: white; font-size: 15px; cursor: pointer; }
+    #loginBtn { background: #2563eb; } #loginBtn:hover { background: #1d4ed8; }
+    #regBtn { background: #10b981; } #regBtn:hover { background: #059669; }
+    .status { margin-top: 12px; font-size: 14px; color: #444; min-height: 18px; text-align: center;}
+    #chatScreen { display: flex; }
+    #sidebar { width: 260px; background: #1f2937; color: white; display: flex; flex-direction: column; border-right: 1px solid #111827; }
+    .sidebar-header { padding: 16px; border-bottom: 1px solid #374151; }
+    .sidebar-header .me { font-size: 14px; opacity: 0.9; }
+    .sidebar-header .server { font-size: 12px; opacity: 0.7; margin-top: 6px; word-break: break-all; }
+    #userList { flex: 1; overflow-y: auto; padding: 8px; }
+    .user-item { padding: 12px; border-radius: 8px; cursor: pointer; margin-bottom: 6px; background: transparent; border: 1px solid transparent; }
+    .user-item:hover { background: #374151; }
+    .user-item.active { background: #2563eb; border-color: #3b82f6; }
+    .user-item .name { font-weight: bold; }
+    .user-item .meta { font-size: 12px; opacity: 0.85; margin-top: 4px; }
+    #main { flex: 1; display: flex; flex-direction: column; background: #f9fafb; }
+    #chatHeader { height: 72px; padding: 16px 20px; border-bottom: 1px solid #dbe2ea; background: white; display: flex; align-items: center; justify-content: space-between; }
+    #chatTitle { font-size: 20px; font-weight: bold; }
+    #chatSubTitle { font-size: 13px; color: #666; margin-top: 4px; }
+    #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+    .empty-state { margin: auto; color: #666; font-size: 15px; text-align: center; }
+    .message { max-width: 70%; padding: 10px 12px; border-radius: 12px; line-height: 1.4; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+    .message.mine { align-self: flex-end; background: #dbeafe; border: 1px solid #bfdbfe; }
+    .message.theirs { align-self: flex-start; background: white; border: 1px solid #e5e7eb; }
+    .message .meta { font-size: 11px; color: #666; margin-bottom: 4px; }
+    .message b { font-weight: bold; } .message i { font-style: italic; }
+    #composer { border-top: 1px solid #dbe2ea; background: white; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .emoji-bar { display: flex; gap: 5px; margin-bottom: 5px;}
+    .emoji-btn { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 4px 8px; }
+    .emoji-btn:hover { background: #e5e7eb; }
+    #composerTopRow { display: flex; gap: 8px; align-items: center; }
+    #messageInput { flex: 1; padding: 12px; border: 1px solid #cfd6dd; border-radius: 10px; font-size: 14px; }
+    #sendBtn, #fileBtn { padding: 12px 16px; border: none; border-radius: 10px; cursor: pointer; font-size: 14px; }
+    #sendBtn { background: #2563eb; color: white; } #sendBtn:hover { background: #1d4ed8; }
+    #fileBtn { background: #e5e7eb; color: #111827; } #fileBtn:hover { background: #d1d5db; }
+    #composerNote { font-size: 12px; color: #666; min-height: 16px; }
   </style>
 </head>
 <body>
-  <h2>SecureChat <span id="status">🔴 Disconnected</span></h2>
 
-  <div class="row">
-    <input id="user" placeholder="username" />
-    <input id="pass" type="password" placeholder="password " />
-    <button id="loginBtn">Login</button>
+  <div id="loginScreen">
+    <div class="login-card">
+      <h1>SecureChat</h1>
+      <label for="serverInput">Server URL</label>
+      <input id="serverInput" type="text" value="wss://127.0.0.1:8765" />
+      <label for="usernameInput">Username</label>
+      <input id="usernameInput" type="text" placeholder="Enter username" />
+      <label for="passwordInput">Password</label>
+      <input id="passwordInput" type="password" placeholder="Enter password" />
+
+      <div class="btn-row">
+        <button id="loginBtn">Log In</button>
+        <button id="regBtn">Register</button>
+      </div>
+      <div id="loginStatus" class="status"></div>
+    </div>
   </div>
 
-  <div id="chat-log"></div>
+  <div id="chatScreen" class="hidden">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <div class="me">Logged in as: <strong id="meLabel"></strong></div>
+        <div class="server" id="serverLabel"></div>
+      </div>
+      <div id="userList"></div>
+    </aside>
 
-  <div class="row">
-    <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
-    <button id="sendBtn">Send</button>
+    <main id="main">
+      <div id="chatHeader">
+        <div>
+          <div id="chatTitle">Select a user</div>
+          <div id="chatSubTitle">Choose someone from the sidebar to start chatting.</div>
+        </div>
+      </div>
+
+      <div id="messages"><div class="empty-state">No conversation selected.</div></div>
+
+      <div id="composer">
+        <div class="emoji-bar">
+          <button class="emoji-btn" onclick="insertEmoji('😀')">😀</button>
+          <button class="emoji-btn" onclick="insertEmoji('😂')">😂</button>
+          <button class="emoji-btn" onclick="insertEmoji('👍')">👍</button>
+          <button class="emoji-btn" onclick="insertEmoji('❤️')">❤️</button>
+          <button class="emoji-btn" onclick="insertEmoji('🔒')">🔒</button>
+          <span style="font-size:12px; color:#666; margin-left:10px; line-height:28px;">Hint: use **bold** or *italic* for rich text</span>
+        </div>
+        <div id="composerTopRow">
+          <input id="messageInput" type="text" placeholder="Type a private message..." />
+          <button id="fileBtn" type="button">Send File</button>
+          <input id="fileInput" type="file" class="hidden" />
+          <button id="sendBtn" type="button">Send</button>
+        </div>
+        <div id="composerNote">Select a user before sending a message.</div>
+      </div>
+    </main>
   </div>
 
-  <div class="row" style="margin-top:10px;">
-    <input type="file" id="fileInput">
-    <button id="sendFileBtn">Send File</button>
-  </div>
+  <script>
+    let socket = null;
+    let currentUser = "";
+    let activeChatUser = null;
+    let serverUrl = "";
 
-<script>
-  const SERVER = "wss://192.168.1.162:8765"; // <-- server IP
-  const statusSpan = document.getElementById('status');
-  const chatLog = document.getElementById('chat-log');
-  const input = document.getElementById('message-input');
+    // E2EE Cryptography State
+    let myKeyPair = null;
+    let peerPublicKeys = {}; // user -> RSA CryptoKey
+    let sharedAESKeys = {};  // user -> AES CryptoKey
 
-  const userEl = document.getElementById('user');
-  const passEl = document.getElementById('pass');
-  const loginBtn = document.getElementById('loginBtn');
+    const conversations = {};
+    let onlineUsers = [];
 
-  const sendBtn = document.getElementById('sendBtn');
-  const fileInput = document.getElementById('fileInput');
-  const sendFileBtn = document.getElementById('sendFileBtn');
+    // UI Elements
+    const loginScreen = document.getElementById("loginScreen");
+    const chatScreen = document.getElementById("chatScreen");
+    const messageInput = document.getElementById("messageInput");
+    const messages = document.getElementById("messages");
 
-  let authed = false;
+    // --- CRYPTOGRAPHY ENGINE (E2EE) ---
 
-  function addLog(text, cls="msg") {
-    const div = document.createElement('div');
-    div.className = cls;
-    div.innerHTML = text;
-    chatLog.appendChild(div);
-    chatLog.scrollTop = chatLog.scrollHeight;
-  }
-
-  const socket = new WebSocket(SERVER);
-
-  socket.onopen = () => {
-    statusSpan.innerText = "🟡 Connected (not logged in)";
-    statusSpan.style.color = "orange";
-    addLog("<span class='sys'>System:</span> Socket connected. Please login.", "msg sys");
-  };
-
-  socket.onmessage = (event) => {
-    let msg;
-    try { msg = JSON.parse(event.data); } catch { return; }
-
-    if (msg.type === "auth_required") {
-      authed = false;
-      statusSpan.innerText = "🟡 Connected (login required)";
-      statusSpan.style.color = "orange";
-      addLog("<span class='sys'>System:</span> Login required.", "msg sys");
-      return;
+    // 1. Generate RSA Keypair on Login
+    async function generateRSA() {
+      myKeyPair = await window.crypto.subtle.generateKey(
+        { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+        true, ["encrypt", "decrypt"]
+      );
     }
 
-    if (msg.type === "auth_ok") {
-      authed = true;
-      statusSpan.innerText = "🟢 Logged in";
-      statusSpan.style.color = "green";
-      addLog(`<span class='sys'>System:</span> Logged in as <b>${msg.username}</b>`, "msg sys");
-      return;
+    // 2. Export Public Key to Base64 to send to peers
+    async function exportPubKeyBase64() {
+      const exported = await window.crypto.subtle.exportKey("spki", myKeyPair.publicKey);
+      return btoa(String.fromCharCode(...new Uint8Array(exported)));
     }
 
-    if (msg.type === "auth_error") {
-      authed = false;
-      addLog(`<span class='sys'>Auth:</span> ${msg.message}`, "msg sys");
-      return;
+    // 3. Import Peer's Public Key
+    async function importPeerPubKey(base64Str) {
+      const binaryDer = Uint8Array.from(atob(base64Str), c => c.charCodeAt(0));
+      return await window.crypto.subtle.importKey(
+        "spki", binaryDer, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]
+      );
     }
 
-    if (msg.type === "rate_limited") {
-      addLog(`<span class='sys'>Rate limit:</span> ${msg.message}`, "msg sys");
-      return;
+    // 4. Generate an AES Key for the session
+    async function generateAES() {
+      return await window.crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
+      );
     }
 
-    if (msg.type === "system") {
-      addLog(`<span class='sys'>System:</span> ${msg.message}`, "msg sys");
-      return;
+    // 5. Encrypt AES Key with Peer's RSA Key (to send to them)
+    async function wrapAESKey(aesKey, peerPubKey) {
+      const rawAES = await window.crypto.subtle.exportKey("raw", aesKey);
+      const encryptedAES = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, peerPubKey, rawAES);
+      return btoa(String.fromCharCode(...new Uint8Array(encryptedAES)));
     }
 
-    if (msg.type === "chat") {
-      addLog(`<span class='other'><b>${msg.from}:</b> ${msg.message}</span>`, "msg other");
-      return;
+    // 6. Decrypt Received AES Key with My RSA Private Key
+    async function unwrapAESKey(base64EncryptedAES) {
+      const encryptedBytes = Uint8Array.from(atob(base64EncryptedAES), c => c.charCodeAt(0));
+      const rawAES = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, myKeyPair.privateKey, encryptedBytes);
+      return await window.crypto.subtle.importKey("raw", rawAES, "AES-GCM", true, ["encrypt", "decrypt"]);
     }
 
-    if (msg.type === "file") {
-      // Create a download link from base64
-      const a = document.createElement("a");
-      a.href = "data:application/octet-stream;base64," + msg.data;
-      a.download = msg.filename || "file.bin";
-      a.textContent = `Download file from ${msg.from}: ${a.download}`;
-
-      const div = document.createElement("div");
-      div.className = "msg other";
-      div.appendChild(a);
-      chatLog.appendChild(div);
-      chatLog.scrollTop = chatLog.scrollHeight;
-      return;
+    // 7. Encrypt Payload using AES
+    async function encryptPayload(dataObj, aesKey) {
+      const jsonStr = JSON.stringify(dataObj);
+      const enc = new TextEncoder().encode(jsonStr);
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const cipher = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aesKey, enc);
+      
+      const ivB64 = btoa(String.fromCharCode(...iv));
+      const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(cipher)));
+      return ivB64 + "." + cipherB64; // Package IV and Ciphertext
     }
 
-    if (msg.type === "error") {
-      addLog(`<span class='sys'>Error:</span> ${msg.message}`, "msg sys");
-    }
-  };
-
-  socket.onclose = () => {
-    statusSpan.innerText = "🔴 Disconnected";
-    statusSpan.style.color = "red";
-    authed = false;
-  };
-
-  socket.onerror = (e) => {
-    console.error(e);
-    addLog("<span class='sys'>System:</span> WebSocket error. Check console.", "msg sys");
-  };
-
-  loginBtn.onclick = () => {
-    socket.send(JSON.stringify({
-      type: "login",
-      username: userEl.value.trim(),
-      password: passEl.value
-    }));
-  };
-
-  function sendChat() {
-    const text = input.value.trim();
-    if (!text) return;
-    if (!authed) {
-      addLog("<span class='sys'>System:</span> You must login first.", "msg sys");
-      return;
-    }
-    socket.send(JSON.stringify({ type: "chat", message: text }));
-    addLog(`<span class='me'><b>Me:</b> ${text}</span>`, "msg me");
-    input.value = "";
-  }
-
-  sendBtn.onclick = sendChat;
-  input.addEventListener("keypress", (e) => { if (e.key === "Enter") sendChat(); });
-
-  sendFileBtn.onclick = async () => {
-    if (!authed) {
-      addLog("<span class='sys'>System:</span> Login first to send files.", "msg sys");
-      return;
-    }
-    const f = fileInput.files[0];
-    if (!f) return;
-
-    // Keep it POC-small (base64 grows size)
-    if (f.size > 1_000_000) {
-      addLog("<span class='sys'>System:</span> File too big for POC (max 1MB).", "msg sys");
-      return;
+    // 8. Decrypt Payload using AES
+    async function decryptPayload(payloadStr, aesKey) {
+      const parts = payloadStr.split(".");
+      const iv = Uint8Array.from(atob(parts[0]), c => c.charCodeAt(0));
+      const cipher = Uint8Array.from(atob(parts[1]), c => c.charCodeAt(0));
+      
+      const decrypted = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, cipher);
+      const jsonStr = new TextDecoder().decode(decrypted);
+      return JSON.parse(jsonStr);
     }
 
-    const buf = await f.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    const b64 = btoa(binary);
+    // --- UI HELPER FUNCTIONS ---
 
-    socket.send(JSON.stringify({
-      type: "file",
-      filename: f.name,
-      data: b64
-    }));
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
 
-    addLog(`<span class='me'><b>Me:</b> sent file ${f.name} (${f.size} bytes)</span>`, "msg me");
-    fileInput.value = "";
-  };
-</script>
+    // Rich Text Formatting: Bold and Italic
+    function parseMarkdown(str) {
+      let safeStr = escapeHtml(str);
+      safeStr = safeStr.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+      safeStr = safeStr.replace(/\*(.*?)\*/g, '<i>$1</i>');
+      return safeStr;
+    }
+
+    function insertEmoji(emoji) {
+      messageInput.value += emoji;
+      messageInput.focus();
+    }
+
+    function setLoginStatus(text, isError = false) {
+      const el = document.getElementById("loginStatus");
+      el.textContent = text;
+      el.style.color = isError ? "#b91c1c" : "#444";
+    }
+
+    function setComposerNote(text) {
+      document.getElementById("composerNote").textContent = text;
+    }
+
+    // --- SOCKET LOGIC ---
+
+    function connect(action) {
+      serverUrl = document.getElementById("serverInput").value.trim();
+      const username = document.getElementById("usernameInput").value.trim();
+      const password = document.getElementById("passwordInput").value;
+
+      if (!serverUrl || !username || !password) {
+        setLoginStatus("Enter all fields.", true); return;
+      }
+
+      setLoginStatus("Connecting...");
+      socket = new WebSocket(serverUrl);
+
+      socket.onopen = async () => {
+        if(action === 'login') {
+            setLoginStatus("Generating RSA Keys for E2EE...");
+            await generateRSA();
+        }
+        socket.send(JSON.stringify({ type: action, username, password }));
+      };
+
+      socket.onmessage = async (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "system" || data.type === "error") {
+            setLoginStatus(data.message, data.type === "error");
+            if(data.type === "system") setComposerNote(data.message);
+            return;
+        }
+
+        if (data.type === "login_success") {
+          currentUser = data.username;
+          document.getElementById("meLabel").textContent = currentUser;
+          document.getElementById("serverLabel").textContent = serverUrl;
+          loginScreen.classList.add("hidden");
+          chatScreen.classList.remove("hidden");
+          return;
+        }
+
+        if (data.type === "login_failed") return;
+
+        if (data.type === "user_list") {
+          onlineUsers = data.users;
+          renderUsers();
+          return;
+        }
+
+        // Key Exchange Step 1: Receiving Peer's Public Key
+        if (data.type === "public_key_exchange") {
+            const peerName = data.from;
+            peerPublicKeys[peerName] = await importPeerPubKey(data.key);
+            
+            // Generate AES, encrypt it, and send back
+            const aes = await generateAES();
+            sharedAESKeys[peerName] = aes;
+            const wrappedAES = await wrapAESKey(aes, peerPublicKeys[peerName]);
+            
+            socket.send(JSON.stringify({ type: "aes_key_exchange", to: peerName, encrypted_aes_key: wrappedAES }));
+            setComposerNote(`Secure E2EE connection established with ${peerName}`);
+            return;
+        }
+
+        // Key Exchange Step 2: Receiving Wrapped AES Key
+        if (data.type === "aes_key_exchange") {
+            const peerName = data.from;
+            sharedAESKeys[peerName] = await unwrapAESKey(data.encrypted_aes_key);
+            setComposerNote(`Secure E2EE connection established with ${peerName}`);
+            return;
+        }
+
+        // Decrypt incoming chat/file
+        if (data.type === "chat" || data.type === "file") {
+          const peerName = data.from === currentUser ? data.to : data.from;
+          if (!sharedAESKeys[peerName]) return; // Cannot decrypt
+          
+          try {
+              const decrypted = await decryptPayload(data.payload, sharedAESKeys[peerName]);
+              if(!conversations[peerName]) conversations[peerName] = [];
+              
+              conversations[peerName].push({
+                  from: data.from,
+                  kind: data.type,
+                  data: decrypted.data,
+                  filename: decrypted.filename,
+                  time: new Date().toLocaleTimeString()
+              });
+              renderUsers();
+              if (activeChatUser === peerName) renderMessages();
+          } catch(e) {
+              console.error("Decryption failed", e);
+          }
+        }
+      };
+
+      socket.onclose = () => setLoginStatus("Disconnected from server.", true);
+    }
+
+    async function selectChat(user) {
+      activeChatUser = user;
+      if (!conversations[user]) conversations[user] = [];
+      renderUsers();
+      renderMessages();
+
+      // Initiate E2EE Key Exchange if we don't have an AES key for them yet
+      if (!sharedAESKeys[user]) {
+          setComposerNote(`Establishing E2EE channel with ${user}...`);
+          const pubB64 = await exportPubKeyBase64();
+          socket.send(JSON.stringify({ type: "public_key_exchange", to: user, key: pubB64 }));
+      } else {
+          setComposerNote(`Secure channel active with ${user} 🔒`);
+      }
+    }
+
+    async function sendEncryptedData(type, innerData) {
+        if (!activeChatUser || !sharedAESKeys[activeChatUser]) {
+            alert("Waiting for secure connection to establish. Try again in a second."); return;
+        }
+        
+        const encryptedPayload = await encryptPayload(innerData, sharedAESKeys[activeChatUser]);
+        
+        socket.send(JSON.stringify({
+            type: type,
+            to: activeChatUser,
+            payload: encryptedPayload
+        }));
+    }
+
+    document.getElementById("sendBtn").addEventListener("click", () => {
+      const text = messageInput.value.trim();
+      if (!text) return;
+      sendEncryptedData("chat", { data: text });
+      messageInput.value = "";
+    });
+
+    document.getElementById("fileInput").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        sendEncryptedData("file", { filename: file.name, data: reader.result });
+      };
+      reader.readAsDataURL(file);
+      e.target.value = "";
+    });
+
+    // Renders
+    function renderUsers() {
+      const list = document.getElementById("userList");
+      list.innerHTML = "";
+      onlineUsers.filter(u => u !== currentUser).forEach(user => {
+        const item = document.createElement("div");
+        item.className = "user-item" + (user === activeChatUser ? " active" : "");
+        item.onclick = () => selectChat(user);
+        item.innerHTML = `<div class="name">${escapeHtml(user)}</div><div class="meta">Online</div>`;
+        list.appendChild(item);
+      });
+    }
+
+    function renderMessages() {
+      messages.innerHTML = "";
+      if (!activeChatUser || conversations[activeChatUser].length === 0) {
+          messages.innerHTML = `<div class="empty-state">No messages yet.</div>`; return;
+      }
+      
+      conversations[activeChatUser].forEach(msg => {
+        const bubble = document.createElement("div");
+        bubble.className = "message " + (msg.from === currentUser ? "mine" : "theirs");
+        
+        let bodyHtml = msg.kind === "file" 
+            ? `<b>File:</b> ${escapeHtml(msg.filename)}<br><a href="${msg.data}" download="${escapeHtml(msg.filename)}">Download</a>`
+            : parseMarkdown(msg.data); // Rich Text parsing here
+
+        bubble.innerHTML = `<div class="meta">${escapeHtml(msg.from)} • ${msg.time}</div><div>${bodyHtml}</div>`;
+        messages.appendChild(bubble);
+      });
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    // Handlers
+    document.getElementById("loginBtn").onclick = () => connect('login');
+    document.getElementById("regBtn").onclick = () => connect('register');
+    document.getElementById("fileBtn").onclick = () => document.getElementById("fileInput").click();
+  </script>
 </body>
 </html>
-
