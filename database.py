@@ -256,7 +256,21 @@ def get_public_key(username):
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
-
+def store_message(sender, recipient, content_type, ciphertext,
+                  encrypted_key, iv, file_name=None, file_url=None):
+    """Persist an encrypted message. Server only ever sees ciphertext."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        f'''INSERT INTO messages
+            (sender, recipient, content_type, ciphertext, encrypted_key, iv,
+             file_name, file_url, timestamp)
+            VALUES ({P}, {P}, {P}, {P}, {P}, {P}, {P}, {P}, {P})''',
+        (sender, recipient, content_type, ciphertext, encrypted_key, iv,
+         file_name, file_url, time.time()),
+    )
+    conn.commit()
+    conn.close()
 
 # ── Initialise schema at import time ──────────────────────────────────────
 
