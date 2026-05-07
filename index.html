@@ -241,8 +241,10 @@ if (FIREBASE_ENABLED) {
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
-const WS_URL = "wss://localhost:8765";
-const EMOJIS = ["😀","😂","😍","🥰","😎","🤔","👍","❤️","🔥","✅","😢","😮","🙏","🎉","💯","😅","🤣","😇","🥳","😜"];
+const WS_URL = location.hostname === "localhost"
+  ? "wss://localhost:8765"
+  : "wss://securechat-xyz.onrender.com";
+  const EMOJIS = ["😀","😂","😍","🥰","😎","🤔","👍","❤️","🔥","✅","😢","😮","🙏","🎉","💯","😅","🤣","😇","🥳","😜"];
 const HEARTBEAT_MS = 30_000;
 const TYPING_DEBOUNCE_MS = 600;
 const TYPING_CLEAR_MS    = 3000;
