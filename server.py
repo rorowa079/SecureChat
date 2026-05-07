@@ -10,7 +10,7 @@ from logging.handlers import RotatingFileHandler
 
 import websockets
 
-import database  # MySQL-backed user store (with connection pool)
+import database  # MySQL-backed user store with connection pool
 
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -21,18 +21,15 @@ CERT_FILE = "certs/cert.pem"
 KEY_FILE  = "certs/key.pem"
 LOGS_DIR  = "logs"
 
-# Rate-limiting / throttle constants
-MAX_ATTEMPTS           = 5      # failed logins or registrations before lockout
-LOCKOUT_TIME           = 300    # lockout window (seconds)
-MAX_CONNECTIONS_PER_IP = 10     # simultaneous WebSocket connections per IP
-MSG_RATE_LIMIT         = 10     # max messages per MSG_RATE_WINDOW seconds
-MSG_RATE_WINDOW        = 5      # sliding window size (seconds)
-MAX_MSG_BYTES          = 64_000 # 64 KB hard cap per WebSocket frame
+MAX_CONNECTIONS_PER_IP = 10
+MSG_RATE_LIMIT         = 10
+MSG_RATE_WINDOW        = 5
+MAX_MSG_BYTES          = 64_000
 
 USERNAME_RE = re.compile(r'^[a-zA-Z0-9_\-]{1,32}$')
 
 
-# ── Rotating logger ────────────────────────────────────────────────────────
+# ── Logger ─────────────────────────────────────────────────────────────────
 
 if not os.path.exists(LOGS_DIR):
     os.makedirs(LOGS_DIR)
@@ -41,8 +38,7 @@ logger = logging.getLogger("SecureChat")
 logger.setLevel(logging.INFO)
 _log_handler = RotatingFileHandler(
     os.path.join(LOGS_DIR, "server.log"),
-    maxBytes=5 * 1024 * 1024,
-    backupCount=5,
+    maxBytes=5 * 1024 * 1024, backupCount=5,
 )
 _log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 logger.addHandler(_log_handler)
@@ -50,49 +46,9 @@ logger.addHandler(_log_handler)
 
 # ── In-memory state ────────────────────────────────────────────────────────
 
-connected_users   = {}  # username -> websocket
-failed_logins     = {}  # username -> [epoch timestamps]
-reg_attempts      = {}  # ip       -> [epoch timestamps]
-connection_counts = {}  # ip       -> int
+active_clients    = {}   # username -> websocket
+connection_counts = {}   # ip -> int
 
-
-def _prune(store: dict, key: str, window: float) -> None:
-    if key in store:
-        cutoff = time.time() - window
-        store[key] = [t for t in store[key] if t > cutoff]
-
-
-# ── Auth (delegates to MySQL via database module) ──────────────────────────
-
-def authenticate_user(username: str, plain_password: str):
-    _prune(failed_logins, username, LOCKOUT_TIME)
-    if len(failed_logins.get(username, [])) >= MAX_ATTEMPTS:
-        return False, "Account locked due to too many failed attempts. Try again in 5 minutes."
-
-    if database.verify_user(username, plain_password):
-        failed_logins.pop(username, None)
-        return True, "Login successful"
-
-    failed_logins.setdefault(username, []).append(time.time())
-    return False, "Invalid username or password."
-
-
-# ── Encrypted-message audit log (server stores ONLY ciphertext) ────────────
-
-def log_chat_message(sender: str, receiver: str, encrypted_payload: str) -> None:
-    pair = sorted([sender, receiver])
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    filename = os.path.join(LOGS_DIR, f"log_{pair[0]}_{pair[1]}_{date_str}.txt")
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    with open(filename, "a", encoding="utf-8") as f:
-        f.write(f"[{timestamp}] {sender}: {encrypted_payload}\n")
-
-
-def iso_now() -> str:
-    return datetime.utcnow().isoformat() + "Z"
-
-
-# ── WebSocket helpers ──────────────────────────────────────────────────────
 
 async def safe_send(ws, payload: dict) -> bool:
     try:
@@ -102,28 +58,259 @@ async def safe_send(ws, payload: dict) -> bool:
         return False
 
 
-async def send_error(ws, message: str) -> None:
-    await safe_send(ws, {"type": "error", "message": message})
-
-
 async def broadcast_user_list() -> None:
-    if not connected_users:
-        return
-    payload = {"type": "user_list", "users": sorted(connected_users.keys())}
+    payload = {"type": "user_list", "users": list(active_clients.keys())}
     dead = []
-    for uname, ws in connected_users.items():
+    for uname, ws in list(active_clients.items()):
         if not await safe_send(ws, payload):
             dead.append(uname)
     for uname in dead:
-        connected_users.pop(uname, None)
+        active_clients.pop(uname, None)
 
 
-# ── Main connection handler ────────────────────────────────────────────────
+def log_chat_message(sender: str, receiver: str, ciphertext: str) -> None:
+    """Audit log of ciphertext only — server never sees plaintext."""
+    pair = sorted([sender, receiver])
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    filename = os.path.join(LOGS_DIR, f"log_{pair[0]}_{pair[1]}_{date_str}.txt")
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    with open(filename, "a", encoding="utf-8") as f:
+        f.write(f"[{timestamp}] {sender}: {ciphertext}\n")
 
-async def handler(websocket):
+
+# ── Authentication loop ────────────────────────────────────────────────────
+
+async def handle_authentication(websocket):
+    """Loops until the client either registers + then logs in, or disconnects."""
     ip = websocket.remote_address[0]
 
-    # 1. Connection-level throttle
+    while True:
+        try:
+            raw = await websocket.recv()
+        except websockets.ConnectionClosed:
+            return None
+
+        if len(raw) > MAX_MSG_BYTES:
+            await safe_send(websocket, {"status": "error", "message": "Message too large."})
+            continue
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            await safe_send(websocket, {"status": "error", "message": "Invalid data format."})
+            continue
+
+        # Heartbeat is allowed during auth so the connection stays warm
+        if data.get("type") == "ping":
+            await safe_send(websocket, {"type": "pong"})
+            continue
+
+        action   = data.get("action")
+        username = data.get("username")
+        password = data.get("password")
+
+        if action not in ("register", "login"):
+            await safe_send(websocket, {"status": "error", "message": "Please log in or register."})
+            continue
+
+        if not username or not password:
+            await safe_send(websocket, {"status": "error", "message": "Missing credentials."})
+            continue
+
+        username = str(username).strip()
+        password = str(password)
+
+        if not USERNAME_RE.match(username):
+            await safe_send(websocket, {"status": "error",
+                "message": "Username must be 1–32 chars: letters, numbers, hyphens, underscores."})
+            continue
+
+        if len(password) > 128:
+            await safe_send(websocket, {"status": "error", "message": "Input too long."})
+            continue
+
+        # ── REGISTER ──
+        if action == "register":
+            if len(password) < 8:
+                await safe_send(websocket, {"status": "error",
+                    "message": "Password must be at least 8 characters."})
+                continue
+
+            if database.is_registration_rate_limited(ip):
+                logger.warning(f"BLOCKED: registration flood from {ip}")
+                await safe_send(websocket, {"status": "error",
+                    "message": "Too many registration attempts. Try again in an hour."})
+                continue
+            database.record_registration_attempt(ip)
+
+            logger.info(f"Registration attempt for '{username}' from {ip}")
+            success, msg = database.register_user(username, password)
+            await safe_send(websocket, {
+                "status":  "success" if success else "error",
+                "message": msg,
+            })
+            continue
+
+        # ── LOGIN ──
+        if database.is_rate_limited(ip, username):
+            logger.warning(f"BLOCKED: brute-force from {ip} on '{username}'")
+            await safe_send(websocket, {"status": "error",
+                "message": "Too many failed attempts. Try again in 5 minutes."})
+            return None  # drop the connection
+
+        if database.verify_user(username, password):
+            if username in active_clients:
+                await safe_send(websocket, {"status": "error", "message": "User already logged in."})
+                return None
+
+            active_clients[username] = websocket
+            database.clear_failed_logins(ip, username)
+            logger.info(f"SUCCESS: '{username}' authenticated from {ip}")
+            await safe_send(websocket, {"status": "success", "message": "Authentication successful."})
+            return username
+
+        database.record_failed_login(ip, username)
+        logger.warning(f"FAILED LOGIN: '{username}' from {ip}")
+        await safe_send(websocket, {"status": "error", "message": "Invalid username or password."})
+
+
+# ── Post-auth chat loop ────────────────────────────────────────────────────
+
+async def chat_loop(websocket, username):
+    msg_timestamps = []
+    await broadcast_user_list()
+
+    try:
+        async for raw in websocket:
+            if len(raw) > MAX_MSG_BYTES:
+                await safe_send(websocket, {"status": "error", "message": "Message too large."})
+                continue
+
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                await safe_send(websocket, {"status": "error", "message": "Invalid data format."})
+                continue
+
+            msg_type = data.get("type")
+
+            # ── Heartbeat ──
+            if msg_type == "ping":
+                await safe_send(websocket, {"type": "pong"})
+                continue
+
+            # ── Per-user sliding-window message rate limit ──
+            now = time.time()
+            msg_timestamps = [t for t in msg_timestamps if now - t < MSG_RATE_WINDOW]
+            if len(msg_timestamps) >= MSG_RATE_LIMIT:
+                await safe_send(websocket, {"status": "error",
+                    "message": "Sending too fast — slow down."})
+                continue
+            msg_timestamps.append(now)
+
+            # ── Public key upload ──
+            if msg_type == "upload_key":
+                pub = data.get("publicKey")
+                if pub:
+                    database.store_public_key(username, pub)
+                    await safe_send(websocket, {"type": "key_uploaded", "status": "success"})
+                    logger.info(f"Public key stored for '{username}'")
+                continue
+
+            # ── Public key fetch ──
+            if msg_type == "get_key":
+                target = data.get("username")
+                key = database.get_public_key(target) if target else None
+                if key:
+                    await safe_send(websocket, {
+                        "type": "public_key", "username": target, "publicKey": key,
+                    })
+                else:
+                    await safe_send(websocket, {"status": "error",
+                        "message": f"No public key for '{target}'."})
+                continue
+
+            # ── Online users list (explicit refresh) ──
+            if msg_type == "get_users":
+                await safe_send(websocket, {
+                    "type": "user_list", "users": list(active_clients.keys()),
+                })
+                continue
+
+            # ── Typing indicator ──
+            if msg_type == "typing":
+                to = data.get("to")
+                if to and to in active_clients:
+                    await safe_send(active_clients[to], {"type": "typing", "from": username})
+                continue
+
+            # ── Encrypted message (text or file) ──
+            if msg_type == "message":
+                # Reject any plaintext attempt
+                if data.get("content"):
+                    logger.warning(f"SECURITY: '{username}' sent plaintext — rejected.")
+                    await safe_send(websocket, {"status": "error",
+                        "message": "Unencrypted messages are not permitted."})
+                    continue
+
+                to            = data.get("to")
+                ciphertext    = data.get("ciphertext")
+                encrypted_key = data.get("encryptedKey")
+                iv            = data.get("iv")
+                content_type  = data.get("contentType", "text")
+                file_url      = data.get("fileUrl")
+                file_name     = data.get("fileName")
+
+                if not all([to, encrypted_key, iv]):
+                    await safe_send(websocket, {"status": "error",
+                        "message": "Encrypted message missing required fields."})
+                    continue
+                if content_type == "text" and not ciphertext:
+                    await safe_send(websocket, {"status": "error",
+                        "message": "Text message missing ciphertext."})
+                    continue
+                if content_type == "file" and not (ciphertext or file_url):
+                    await safe_send(websocket, {"status": "error",
+                        "message": "File message missing payload."})
+                    continue
+
+                if to not in active_clients:
+                    await safe_send(websocket, {"status": "error",
+                        "message": f"User '{to}' is not online."})
+                    continue
+
+                # Audit-log ciphertext only (plaintext never reaches the server)
+                log_chat_message(username, to, ciphertext or file_url)
+
+                await safe_send(active_clients[to], {
+                    "type":         "message",
+                    "from":         username,
+                    "encryptedKey": encrypted_key,
+                    "iv":           iv,
+                    "ciphertext":   ciphertext,
+                    "fileUrl":      file_url,
+                    "contentType":  content_type,
+                    "fileName":     file_name,
+                })
+                continue
+
+            await safe_send(websocket, {"status": "error",
+                "message": f"Unknown message type: {msg_type}"})
+
+    except websockets.ConnectionClosed:
+        pass
+    finally:
+        if active_clients.get(username) is websocket:
+            active_clients.pop(username, None)
+            logger.info(f"DISCONNECT: '{username}' has left.")
+            await broadcast_user_list()
+
+
+# ── Top-level connection handler ───────────────────────────────────────────
+
+async def connection_handler(websocket, path=None):
+    ip = websocket.remote_address[0]
+
     connection_counts[ip] = connection_counts.get(ip, 0) + 1
     if connection_counts[ip] > MAX_CONNECTIONS_PER_IP:
         logger.warning(f"BLOCKED: too many connections from {ip}")
@@ -131,191 +318,18 @@ async def handler(websocket):
         await websocket.close(1008, "Too many connections from your IP.")
         return
 
-    username = None
-    msg_timestamps = []
-
+    logger.info(f"New connection from {ip}")
     try:
-        async for raw_message in websocket:
-
-            # 2. Hard size cap
-            if len(raw_message) > MAX_MSG_BYTES:
-                await send_error(websocket, "Message too large.")
-                logger.warning(f"OVERSIZED frame ({len(raw_message)} bytes) from {ip}")
-                continue
-
-            try:
-                data = json.loads(raw_message)
-            except json.JSONDecodeError:
-                await send_error(websocket, "Invalid JSON.")
-                continue
-
-            msg_type = data.get("type")
-
-            # ── HEARTBEAT (allowed pre-auth so client can keep socket warm) ──
-            if msg_type == "ping":
-                await safe_send(websocket, {"type": "pong"})
-                continue
-
-            # ── REGISTRATION ──────────────────────────────────────────────
-            if msg_type == "register":
-                req_user = str(data.get("username", "")).strip()
-                req_pass = str(data.get("password", ""))
-
-                if not req_user or not req_pass:
-                    await send_error(websocket, "Missing credentials.")
-                    continue
-                if not USERNAME_RE.match(req_user):
-                    await send_error(websocket, "Username must be 1–32 characters: letters, numbers, hyphens, underscores only.")
-                    continue
-                if len(req_pass) < 8:
-                    await send_error(websocket, "Password must be at least 8 characters.")
-                    continue
-                if len(req_pass) > 128:
-                    await send_error(websocket, "Password too long.")
-                    continue
-
-                _prune(reg_attempts, ip, LOCKOUT_TIME)
-                if len(reg_attempts.get(ip, [])) >= MAX_ATTEMPTS:
-                    logger.warning(f"BLOCKED: registration flood from {ip}")
-                    await send_error(websocket, "Too many registration attempts. Try again in 5 minutes.")
-                    continue
-                reg_attempts.setdefault(ip, []).append(time.time())
-
-                logger.info(f"Registration attempt for '{req_user}' from {ip}")
-                success, msg = database.register_user(req_user, req_pass)
-                if success:
-                    logger.info(f"Registered new user '{req_user}'")
-                    await safe_send(websocket, {"type": "system", "message": msg})
-                else:
-                    await send_error(websocket, msg)
-                continue
-
-            # ── LOGIN ─────────────────────────────────────────────────────
-            if msg_type == "login":
-                req_user = str(data.get("username", "")).strip()
-                req_pass = str(data.get("password", ""))
-
-                if not req_user or not req_pass:
-                    await send_error(websocket, "Missing credentials.")
-                    continue
-                if not USERNAME_RE.match(req_user):
-                    await send_error(websocket, "Invalid username format.")
-                    continue
-                if len(req_pass) > 128:
-                    await send_error(websocket, "Input too long.")
-                    continue
-
-                logger.info(f"Login attempt for '{req_user}' from {ip}")
-                success, auth_msg = authenticate_user(req_user, req_pass)
-
-                if not success:
-                    logger.warning(f"FAILED LOGIN: '{req_user}' from {ip}")
-                    await send_error(websocket, auth_msg)
-                    await safe_send(websocket, {"type": "login_failed"})
-                    continue
-
-                # Kick any stale session for this user
-                old_ws = connected_users.get(req_user)
-                if old_ws and old_ws is not websocket:
-                    try:
-                        await old_ws.close()
-                    except Exception:
-                        pass
-
-                username = req_user
-                connected_users[username] = websocket
-                logger.info(f"SUCCESS: '{username}' authenticated from {ip}")
-                await safe_send(websocket, {"type": "login_success", "username": username})
-                await broadcast_user_list()
-                continue
-
-            # ── Auth required for everything below ────────────────────────
-            if not username:
-                await send_error(websocket, "You must log in first.")
-                continue
-
-            # 3. Post-auth message rate limit (sliding window)
-            now = time.time()
-            msg_timestamps = [t for t in msg_timestamps if now - t < MSG_RATE_WINDOW]
-            if len(msg_timestamps) >= MSG_RATE_LIMIT:
-                await send_error(websocket, "Sending too fast. Please slow down.")
-                continue
-            msg_timestamps.append(now)
-
-            # ── E2EE PUBLIC KEY EXCHANGE ──────────────────────────────────
-            if msg_type == "public_key_exchange":
-                target = data.get("to")
-                target_ws = connected_users.get(target)
-                if target_ws:
-                    await safe_send(target_ws, {
-                        "type": "public_key_exchange",
-                        "from": username,
-                        "key":  data.get("key"),
-                    })
-                continue
-
-            # ── E2EE AES KEY EXCHANGE ─────────────────────────────────────
-            if msg_type == "aes_key_exchange":
-                target = data.get("to")
-                target_ws = connected_users.get(target)
-                if target_ws:
-                    await safe_send(target_ws, {
-                        "type":              "aes_key_exchange",
-                        "from":              username,
-                        "encrypted_aes_key": data.get("encrypted_aes_key"),
-                    })
-                continue
-
-            # ── TYPING INDICATOR ──────────────────────────────────────────
-            if msg_type == "typing":
-                target = data.get("to")
-                target_ws = connected_users.get(target)
-                if target_ws:
-                    await safe_send(target_ws, {"type": "typing", "from": username})
-                continue
-
-            # ── CHAT & FILE MESSAGES ──────────────────────────────────────
-            if msg_type in ("chat", "file"):
-                recipient = str(data.get("to", "")).strip()
-                payload   = data.get("payload")
-
-                if not payload:
-                    await send_error(websocket, "Payload cannot be empty.")
-                    continue
-
-                # Server only ever sees ciphertext — we audit-log it as-is
-                log_chat_message(username, recipient, payload)
-
-                msg_out = {
-                    "type":      msg_type,
-                    "from":      username,
-                    "to":        recipient,
-                    "payload":   payload,
-                    "timestamp": iso_now(),
-                }
-
-                recipient_ws = connected_users.get(recipient)
-                if recipient_ws:
-                    await safe_send(recipient_ws, msg_out)
-                await safe_send(websocket, msg_out)
-                continue
-
-            await send_error(websocket, f"Unknown message type: {msg_type}")
-
-    except websockets.ConnectionClosed:
-        pass
+        username = await handle_authentication(websocket)
+        if username:
+            await chat_loop(websocket, username)
     finally:
         connection_counts[ip] = max(0, connection_counts.get(ip, 1) - 1)
-        if username and connected_users.get(username) is websocket:
-            connected_users.pop(username, None)
-            logger.info(f"DISCONNECT: '{username}' has left.")
-            await broadcast_user_list()
 
 
 # ── Entry point ────────────────────────────────────────────────────────────
 
 async def main():
-    # Render terminates TLS at the edge; only load self-signed certs locally.
     ssl_context = None
     if not os.environ.get("RENDER"):
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -326,11 +340,8 @@ async def main():
     print(f"SecureChat server running on {scheme}://{HOST}:{PORT}")
 
     async with websockets.serve(
-        handler,
-        HOST,
-        PORT,
-        ssl=ssl_context,
-        max_size=MAX_MSG_BYTES,
+        connection_handler, HOST, PORT,
+        ssl=ssl_context, max_size=MAX_MSG_BYTES,
     ):
         await asyncio.Future()
 
