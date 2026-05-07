@@ -280,8 +280,21 @@ async def chat_loop(websocket, username):
                     continue
 
                 # Audit-log ciphertext only (plaintext never reaches the server)
-                log_chat_message(username, to, ciphertext or file_url)
-
+                # Persist encrypted message to MySQL (server only ever sees ciphertext)
+                try:
+                    database.store_message(
+                        sender        = username,
+                        recipient     = to,
+                        content_type  = content_type,
+                        ciphertext    = ciphertext,
+                        encrypted_key = encrypted_key,
+                        iv            = iv,
+                        file_name     = file_name,
+                        file_url      = file_url,
+                    )
+                except Exception as e:
+                    logger.error(f"Message persist failed: {e}")
+                    # Don't block delivery on storage failure
                 await safe_send(active_clients[to], {
                     "type":         "message",
                     "from":         username,
