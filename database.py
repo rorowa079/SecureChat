@@ -14,6 +14,7 @@ MYSQL_DB       = os.environ.get("MYSQL_DB",       "securechat")
 CA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ca.pem")
 P = "%s" if DB_MODE == "mysql" else "?"
 
+
 # ── Connection pool (DBUtils, lazy init) ──────────────────────────────────
 
 _pool = None
@@ -83,27 +84,7 @@ def init_db():
             username   VARCHAR(191) PRIMARY KEY,
             public_key MEDIUMTEXT   NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4''')
-    else:
-        c.execute('''CREATE TABLE IF NOT EXISTS users (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            username      TEXT UNIQUE NOT NULL,
-            password_hash TEXT        NOT NULL
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS login_attempts (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            ip_address TEXT NOT NULL,
-            username   TEXT NOT NULL,
-            timestamp  REAL NOT NULL
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS registration_attempts (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            ip_address TEXT NOT NULL,
-            timestamp  REAL NOT NULL
-        )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS public_keys (
-            username   TEXT PRIMARY KEY,
-            public_key TEXT NOT NULL
-        )''')
+
         c.execute('''CREATE TABLE IF NOT EXISTS messages (
             id            INT AUTO_INCREMENT PRIMARY KEY,
             sender        VARCHAR(191) NOT NULL,
@@ -119,7 +100,32 @@ def init_db():
             INDEX idx_recipient (recipient),
             INDEX idx_timestamp (timestamp)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4''')
-                c.execute('''CREATE TABLE IF NOT EXISTS messages (
+    else:
+        c.execute('''CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT UNIQUE NOT NULL,
+            password_hash TEXT        NOT NULL
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS login_attempts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address TEXT NOT NULL,
+            username   TEXT NOT NULL,
+            timestamp  REAL NOT NULL
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS registration_attempts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address TEXT NOT NULL,
+            timestamp  REAL NOT NULL
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS public_keys (
+            username   TEXT PRIMARY KEY,
+            public_key TEXT NOT NULL
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS messages (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             sender        TEXT NOT NULL,
             recipient     TEXT NOT NULL,
@@ -131,11 +137,12 @@ def init_db():
             file_url      TEXT,
             timestamp     REAL NOT NULL
         )''')
+
     conn.commit()
     conn.close()
 
 
-# ── User ops (all parameterised — SQL-injection safe) ─────────────────────
+# ── User ops (parameterised — SQL-injection safe) ─────────────────────────
 
 def register_user(username, password):
     hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
@@ -172,7 +179,7 @@ def verify_user(username, password):
     return bcrypt.checkpw(password.encode("utf-8"), stored.encode("utf-8"))
 
 
-# ── Login throttle (5 fails / 5 min, per IP and per username) ─────────────
+# ── Login throttle ────────────────────────────────────────────────────────
 
 def is_rate_limited(ip_address, username):
     conn = get_connection()
@@ -206,7 +213,7 @@ def clear_failed_logins(ip_address, username):
     conn.close()
 
 
-# ── Registration throttle (3 / hour per IP) ───────────────────────────────
+# ── Registration throttle ─────────────────────────────────────────────────
 
 def is_registration_rate_limited(ip_address, max_per_hour=3):
     conn = get_connection()
@@ -228,7 +235,7 @@ def record_registration_attempt(ip_address):
     conn.close()
 
 
-# ── Public key store (E2EE key directory) ─────────────────────────────────
+# ── Public key store ──────────────────────────────────────────────────────
 
 def store_public_key(username, public_key_spki):
     conn = get_connection()
@@ -256,6 +263,10 @@ def get_public_key(username):
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
+
+
+# ── Encrypted message persistence ─────────────────────────────────────────
+
 def store_message(sender, recipient, content_type, ciphertext,
                   encrypted_key, iv, file_name=None, file_url=None):
     """Persist an encrypted message. Server only ever sees ciphertext."""
@@ -272,6 +283,6 @@ def store_message(sender, recipient, content_type, ciphertext,
     conn.commit()
     conn.close()
 
-# ── Initialise schema at import time ──────────────────────────────────────
 
+# Initialise schema at import time
 init_db()
