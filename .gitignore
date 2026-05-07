@@ -1,5 +1,10 @@
 venv/
+.venv/
 __pycache__/
 certs/
 *.pyc
 .env
+.DS_Store
+logs/
+*.log
+securechat.db
