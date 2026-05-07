@@ -104,7 +104,33 @@ def init_db():
             username   TEXT PRIMARY KEY,
             public_key TEXT NOT NULL
         )''')
-
+        c.execute('''CREATE TABLE IF NOT EXISTS messages (
+            id            INT AUTO_INCREMENT PRIMARY KEY,
+            sender        VARCHAR(191) NOT NULL,
+            recipient     VARCHAR(191) NOT NULL,
+            content_type  VARCHAR(16)  NOT NULL,
+            ciphertext    MEDIUMTEXT,
+            encrypted_key MEDIUMTEXT   NOT NULL,
+            iv            VARCHAR(64)  NOT NULL,
+            file_name     VARCHAR(255),
+            file_url      TEXT,
+            timestamp     DOUBLE       NOT NULL,
+            INDEX idx_sender    (sender),
+            INDEX idx_recipient (recipient),
+            INDEX idx_timestamp (timestamp)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4''')
+                c.execute('''CREATE TABLE IF NOT EXISTS messages (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender        TEXT NOT NULL,
+            recipient     TEXT NOT NULL,
+            content_type  TEXT NOT NULL,
+            ciphertext    TEXT,
+            encrypted_key TEXT NOT NULL,
+            iv            TEXT NOT NULL,
+            file_name     TEXT,
+            file_url      TEXT,
+            timestamp     REAL NOT NULL
+        )''')
     conn.commit()
     conn.close()
 
