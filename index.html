@@ -1,472 +1,740 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SecureChat</title>
+
+  <!-- Firebase Storage SDK (compat) — used when FIREBASE_CONFIG is filled in -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+
   <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, sans-serif; background: #ffffff; height: 100vh; }
-    .hidden { display: none !important; }
-    #loginScreen, #chatScreen { height: 100vh; width: 100%; }
-    #loginScreen { display: flex; align-items: center; justify-content: center; }
-    .login-card { width: 360px; background: white; border-radius: 12px; padding: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-    .login-card h1 { margin-top: 0; margin-bottom: 16px; font-size: 24px; }
-    .login-card label { display: block; margin-top: 12px; margin-bottom: 6px; font-weight: bold; }
-    .login-card input { width: 100%; padding: 10px; border: 1px solid #cfd6dd; border-radius: 8px; font-size: 14px; }
-    .btn-row { display: flex; gap: 10px; margin-top: 16px; }
-    .btn-row button { flex: 1; padding: 10px; border: none; border-radius: 8px; color: white; font-size: 15px; cursor: pointer; }
-    #loginBtn { background: #2563eb; } #loginBtn:hover { background: #1d4ed8; }
-    #regBtn { background: #10b981; } #regBtn:hover { background: #059669; }
-    .status { margin-top: 12px; font-size: 14px; color: #444; min-height: 18px; text-align: center;}
-    #chatScreen { display: flex; }
-    #sidebar { width: 260px; background: #1f2937; color: white; display: flex; flex-direction: column; border-right: 1px solid #111827; }
-    .sidebar-header { padding: 16px; border-bottom: 1px solid #374151; }
-    .sidebar-header .me { font-size: 14px; opacity: 0.9; }
-    .sidebar-header .server { font-size: 12px; opacity: 0.7; margin-top: 6px; word-break: break-all; }
-    #userList { flex: 1; overflow-y: auto; padding: 8px; }
-    .user-item { padding: 12px; border-radius: 8px; cursor: pointer; margin-bottom: 6px; background: transparent; border: 1px solid transparent; }
-    .user-item:hover { background: #374151; }
-    .user-item.active { background: #2563eb; border-color: #3b82f6; }
-    .user-item .name { font-weight: bold; }
-    .user-item .meta { font-size: 12px; opacity: 0.85; margin-top: 4px; }
-    #main { flex: 1; display: flex; flex-direction: column; background: #f9fafb; }
-    #chatHeader { height: 72px; padding: 16px 20px; border-bottom: 1px solid #dbe2ea; background: white; display: flex; align-items: center; justify-content: space-between; }
-    #chatTitle { font-size: 20px; font-weight: bold; }
-    #chatSubTitle { font-size: 13px; color: #666; margin-top: 4px; }
-    #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
-    .empty-state { margin: auto; color: #666; font-size: 15px; text-align: center; }
-    .message { max-width: 70%; padding: 10px 12px; border-radius: 12px; line-height: 1.4; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
-    .message.mine { align-self: flex-end; background: #dbeafe; border: 1px solid #bfdbfe; }
-    .message.theirs { align-self: flex-start; background: white; border: 1px solid #e5e7eb; }
-    .message .meta { font-size: 11px; color: #666; margin-bottom: 4px; }
-    .message b { font-weight: bold; } .message i { font-style: italic; }
-    #composer { border-top: 1px solid #dbe2ea; background: white; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-    .emoji-bar { display: flex; gap: 5px; margin-bottom: 5px;}
-    .emoji-btn { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; cursor: pointer; font-size: 16px; padding: 4px 8px; }
-    .emoji-btn:hover { background: #e5e7eb; }
-    #composerTopRow { display: flex; gap: 8px; align-items: center; }
-    #messageInput { flex: 1; padding: 12px; border: 1px solid #cfd6dd; border-radius: 10px; font-size: 14px; }
-    #sendBtn, #fileBtn { padding: 12px 16px; border: none; border-radius: 10px; cursor: pointer; font-size: 14px; }
-    #sendBtn { background: #2563eb; color: white; } #sendBtn:hover { background: #1d4ed8; }
-    #fileBtn { background: #e5e7eb; color: #111827; } #fileBtn:hover { background: #d1d5db; }
-    #composerNote { font-size: 12px; color: #666; min-height: 16px; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── Auth Screen ── */
+    #auth-screen {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 40px 36px;
+      width: 360px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    #auth-screen h1 { font-size: 1.6rem; margin-bottom: 6px; color: #4fc3f7; }
+    #auth-screen p.sub { font-size: 0.82rem; color: #888; margin-bottom: 18px; }
+    #conn-indicator { text-align: center; font-size: 0.85rem; margin-bottom: 16px; font-weight: 600; min-height: 18px; }
+    #auth-screen input {
+      width: 100%; padding: 11px 14px; margin-bottom: 12px;
+      background: #0f3460; border: 1px solid #1e5f8e; border-radius: 8px;
+      color: #e0e0e0; font-size: 0.95rem; outline: none;
+    }
+    #auth-screen input:focus { border-color: #4fc3f7; }
+    .btn-row { display: flex; gap: 10px; margin-top: 4px; }
+    .btn {
+      flex: 1; padding: 11px; border: none; border-radius: 8px;
+      cursor: pointer; font-size: 0.95rem; font-weight: 600; transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: #4fc3f7; color: #0d1b2a; }
+    .btn-secondary { background: #0f3460; color: #4fc3f7; border: 1px solid #4fc3f7; }
+    #auth-status { margin-top: 14px; font-size: 0.85rem; min-height: 20px; text-align: center; }
+    #keygen-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.75); align-items: center; justify-content: center;
+      flex-direction: column; z-index: 100;
+    }
+    #keygen-overlay.show { display: flex; }
+    #keygen-overlay p { margin-top: 16px; color: #4fc3f7; font-size: 0.95rem; }
+    .spinner {
+      width: 48px; height: 48px; border: 5px solid #0f3460;
+      border-top-color: #4fc3f7; border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Chat Screen ── */
+    #chat-screen { display: none; width: 100vw; height: 100vh; flex-direction: row; }
+    #chat-screen.show { display: flex; }
+
+    #sidebar {
+      width: 220px; background: #16213e; border-right: 1px solid #0f3460;
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    #sidebar-header {
+      padding: 18px 16px 12px; font-size: 1rem; font-weight: 700;
+      color: #4fc3f7; border-bottom: 1px solid #0f3460;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    #sidebar-header span { font-size: 0.75rem; color: #888; font-weight: 400; }
+    #user-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+    #user-list li {
+      list-style: none; padding: 10px 16px; cursor: pointer;
+      border-radius: 6px; margin: 2px 8px; display: flex; align-items: center; gap: 8px;
+      transition: background .15s;
+    }
+    #user-list li:hover, #user-list li.active { background: #0f3460; }
+    #user-list li .dot { width: 8px; height: 8px; background: #4caf50; border-radius: 50%; flex-shrink: 0; }
+    #sidebar-logout { padding: 14px 16px; border-top: 1px solid #0f3460; }
+    #sidebar-logout button {
+      width: 100%; padding: 9px; background: transparent;
+      border: 1px solid #555; border-radius: 8px; color: #aaa; cursor: pointer; font-size: 0.85rem;
+    }
+    #sidebar-logout button:hover { border-color: #e57373; color: #e57373; }
+
+    #chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    #chat-header {
+      padding: 16px 20px; background: #16213e; border-bottom: 1px solid #0f3460;
+      font-size: 1rem; font-weight: 600; color: #4fc3f7;
+    }
+    #messages {
+      flex: 1; overflow-y: auto; padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    #typing-indicator {
+      padding: 2px 20px 6px; font-size: 0.78rem; color: #888;
+      min-height: 22px; font-style: italic;
+    }
+    .bubble {
+      max-width: 68%; padding: 10px 14px; border-radius: 12px;
+      font-size: 0.9rem; line-height: 1.45; word-break: break-word;
+    }
+    .bubble.out { align-self: flex-end; background: #0f3460; color: #e0e0e0; border-bottom-right-radius: 3px; }
+    .bubble.in  { align-self: flex-start; background: #1e3a5f; color: #e0e0e0; border-bottom-left-radius: 3px; }
+    .bubble .meta { font-size: 0.72rem; color: #888; margin-bottom: 4px; }
+    .bubble a { color: #4fc3f7; }
+    .system-msg { text-align: center; font-size: 0.78rem; color: #666; padding: 4px 0; }
+
+    #input-bar {
+      padding: 12px 16px; background: #16213e; border-top: 1px solid #0f3460;
+      display: flex; align-items: center; gap: 8px; position: relative;
+    }
+    #input-bar input[type=text] {
+      flex: 1; padding: 10px 14px; background: #0f3460; border: 1px solid #1e5f8e;
+      border-radius: 24px; color: #e0e0e0; font-size: 0.9rem; outline: none;
+    }
+    #input-bar input[type=text]:focus { border-color: #4fc3f7; }
+    .icon-btn {
+      background: none; border: none; cursor: pointer; font-size: 1.2rem;
+      color: #888; padding: 6px; border-radius: 6px; transition: color .15s;
+    }
+    .icon-btn:hover { color: #4fc3f7; }
+    #pending-file-label {
+      font-size: 0.78rem; color: #4fc3f7; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 120px;
+    }
+    .send-btn {
+      padding: 9px 18px; background: #4fc3f7; color: #0d1b2a;
+      border: none; border-radius: 20px; cursor: pointer; font-weight: 700;
+      font-size: 0.9rem; transition: opacity .15s;
+    }
+    .send-btn:hover { opacity: .85; }
+    .send-btn:disabled { opacity: .4; cursor: default; }
+
+    #emoji-picker {
+      position: absolute; bottom: 62px; left: 16px;
+      background: #16213e; border: 1px solid #0f3460; border-radius: 10px;
+      padding: 10px; width: 280px; z-index: 50;
+      display: none; flex-wrap: wrap; gap: 4px;
+    }
+    #emoji-picker.show { display: flex; }
+    #emoji-picker span {
+      font-size: 1.3rem; cursor: pointer; padding: 4px;
+      border-radius: 4px; transition: background .1s;
+    }
+    #emoji-picker span:hover { background: #0f3460; }
+
+    #status-bar {
+      padding: 6px 16px; background: #0d1b2a; font-size: 0.75rem;
+      color: #888; border-top: 1px solid #0f3460; text-align: center;
+    }
   </style>
 </head>
 <body>
 
-  <div id="loginScreen">
-    <div class="login-card">
-      <h1>SecureChat</h1>
-      <label for="serverInput">Server URL</label>
-      <input id="serverInput" type="text" value="wss://127.0.0.1:8765" />
-      <label for="usernameInput">Username</label>
-      <input id="usernameInput" type="text" placeholder="Enter username" />
-      <label for="passwordInput">Password</label>
-      <input id="passwordInput" type="password" placeholder="Enter password" />
+<!-- Auth Screen -->
+<div id="auth-screen">
+  <h1>🔒 SecureChat</h1>
+  <p class="sub">End-to-end encrypted · RSA-4096 + AES-GCM</p>
+  <div id="conn-indicator"></div>
+  <input type="text" id="auth-username" placeholder="Username" autocomplete="off">
+  <input type="password" id="auth-password" placeholder="Password">
+  <div class="btn-row">
+    <button class="btn btn-primary"    onclick="authenticate('login')">Login</button>
+    <button class="btn btn-secondary"  onclick="authenticate('register')">Register</button>
+  </div>
+  <div id="auth-status"></div>
+</div>
 
-      <div class="btn-row">
-        <button id="loginBtn">Log In</button>
-        <button id="regBtn">Register</button>
-      </div>
-      <div id="loginStatus" class="status"></div>
+<!-- Key generation overlay -->
+<div id="keygen-overlay">
+  <div class="spinner"></div>
+  <p>Generating RSA-4096 key pair…</p>
+</div>
+
+<!-- Chat Screen -->
+<div id="chat-screen">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      SecureChat
+      <span id="my-name-label"></span>
+    </div>
+    <ul id="user-list"></ul>
+    <div id="sidebar-logout">
+      <button onclick="logout()">Disconnect</button>
     </div>
   </div>
 
-  <div id="chatScreen" class="hidden">
-    <aside id="sidebar">
-      <div class="sidebar-header">
-        <div class="me">Logged in as: <strong id="meLabel"></strong></div>
-        <div class="server" id="serverLabel"></div>
-      </div>
-      <div id="userList"></div>
-    </aside>
+  <div id="chat-area">
+    <div id="chat-header">Select a user to start chatting</div>
+    <div id="messages"></div>
+    <div id="typing-indicator"></div>
 
-    <main id="main">
-      <div id="chatHeader">
-        <div>
-          <div id="chatTitle">Select a user</div>
-          <div id="chatSubTitle">Choose someone from the sidebar to start chatting.</div>
-        </div>
-      </div>
+    <div id="emoji-picker"></div>
 
-      <div id="messages"><div class="empty-state">No conversation selected.</div></div>
-
-      <div id="composer">
-        <div class="emoji-bar">
-          <button class="emoji-btn" onclick="insertEmoji('😀')">😀</button>
-          <button class="emoji-btn" onclick="insertEmoji('😂')">😂</button>
-          <button class="emoji-btn" onclick="insertEmoji('👍')">👍</button>
-          <button class="emoji-btn" onclick="insertEmoji('❤️')">❤️</button>
-          <button class="emoji-btn" onclick="insertEmoji('🔒')">🔒</button>
-          <span style="font-size:12px; color:#666; margin-left:10px; line-height:28px;">Hint: use **bold** or *italic* for rich text</span>
-        </div>
-        <div id="composerTopRow">
-          <input id="messageInput" type="text" placeholder="Type a private message..." />
-          <button id="fileBtn" type="button">Send File</button>
-          <input id="fileInput" type="file" class="hidden" />
-          <button id="sendBtn" type="button">Send</button>
-        </div>
-        <div id="composerNote">Select a user before sending a message.</div>
-      </div>
-    </main>
+    <div id="input-bar">
+      <button class="icon-btn" title="Emoji" onclick="toggleEmoji()">😊</button>
+      <input type="file" id="file-input" style="display:none" onchange="handleFileSelect(this)">
+      <button class="icon-btn" title="Attach file" onclick="document.getElementById('file-input').click()">📎</button>
+      <span id="pending-file-label"></span>
+      <input type="text" id="msg-input"
+             placeholder="Type an end-to-end encrypted message…"
+             oninput="onTyping()"
+             onkeydown="if(event.key==='Enter')sendMessage()">
+      <button class="send-btn" id="send-btn" onclick="sendMessage()">Send</button>
+    </div>
+    <div id="status-bar">Not connected</div>
   </div>
+</div>
 
-  <script>
-    let socket = null;
-    let currentUser = "";
-    let activeChatUser = null;
-    let serverUrl = "";
+<script>
 
-    // E2EE Cryptography State
-    let myKeyPair = null;
-    let peerPublicKeys = {}; // user -> RSA CryptoKey
-    let sharedAESKeys = {};  // user -> AES CryptoKey
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBW-cqlK2e_HeH4dkuY9kmN6tQmcq9CQMg",
+  authDomain:        "chat-bba9f.firebaseapp.com",
+  projectId:         "chat-bba9f",
+  storageBucket:     "chat-bba9f.firebasestorage.app",
+  messagingSenderId: "518675266766",
+  appId:             "1:518675266766:web:a23af7bfdb5a201a5ee49f",
+  measurementId:     "G-BKTJE8YKXY"
+};
+const FIREBASE_ENABLED = FIREBASE_CONFIG.apiKey !== "YOUR_API_KEY";
+let firebaseStorage = null;
+if (FIREBASE_ENABLED) {
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    firebaseStorage = firebase.storage();
+  } catch (e) {
+    console.warn("Firebase init failed:", e);
+  }
+}
 
-    const conversations = {};
-    let onlineUsers = [];
+// ── Constants ──────────────────────────────────────────────────────────────
+const WS_URL = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+  ? "wss://localhost:8765"
+  : "wss://securechat-4jmv.onrender.com";
+const EMOJIS = ["😀","😂","😍","🥰","😎","🤔","👍","❤️","🔥","✅","😢","😮","🙏","🎉","💯","😅","🤣","😇","🥳","😜"];
+const HEARTBEAT_MS = 30_000;
+const TYPING_DEBOUNCE_MS = 600;
+const TYPING_CLEAR_MS    = 3000;
+const MAX_FILE_BYTES     = 10 * 1024 * 1024;
+const BLOCKED_EXTENSIONS = new Set([
+  "exe","bat","cmd","com","scr","msi","vbs","vbe","js","jse","ws","wsf","wsh",
+  "ps1","psm1","jar","app","apk","dll","sys","drv","cpl","reg","lnk","inf","hta"
+]);
 
-    // UI Elements
-    const loginScreen = document.getElementById("loginScreen");
-    const chatScreen = document.getElementById("chatScreen");
-    const messageInput = document.getElementById("messageInput");
-    const messages = document.getElementById("messages");
+// ── State ──────────────────────────────────────────────────────────────────
+let ws              = null;
+let myUsername      = "";
+let myKeyPair       = null;
+let selectedUser    = null;
+let pendingKeyRes   = {};     // username → { resolve, reject }
+let cachedPubKeys   = {};     // username → CryptoKey
+let reconnectTimer  = null;
+let heartbeatTimer  = null;
+let typingSendTimer = null;   // debounce for outgoing typing events
+let typingShowTimer = {};     // username → timer id for hiding indicator
+let pendingFile     = null;   // { name, data: ArrayBuffer }
 
-    // --- CRYPTOGRAPHY ENGINE (E2EE) ---
+// ── Base64 helpers ─────────────────────────────────────────────────────────
+function bufToB64(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+function b64ToBuf(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
 
-    // 1. Generate RSA Keypair on Login
-    async function generateRSA() {
-      myKeyPair = await window.crypto.subtle.generateKey(
-        { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
-        true, ["encrypt", "decrypt"]
-      );
+// ── Crypto ─────────────────────────────────────────────────────────────────
+async function generateKeyPair() {
+  return crypto.subtle.generateKey(
+    { name: "RSA-OAEP", modulusLength: 4096, publicExponent: new Uint8Array([1,0,1]), hash: "SHA-256" },
+    true, ["encrypt", "decrypt"]
+  );
+}
+
+async function getOrCreateKeyPair(username) {
+  const storeKey = `securechat_keys_${username}`;
+  const stored   = localStorage.getItem(storeKey);
+  if (stored) {
+    try {
+      const { pubJwk, privJwk } = JSON.parse(stored);
+      const publicKey  = await crypto.subtle.importKey("jwk", pubJwk,
+        { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
+      const privateKey = await crypto.subtle.importKey("jwk", privJwk,
+        { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+      return { publicKey, privateKey };
+    } catch (e) {
+      console.warn("Stored keys unreadable, regenerating:", e);
+      localStorage.removeItem(storeKey);
     }
+  }
+  const kp = await generateKeyPair();
+  const pubJwk  = await crypto.subtle.exportKey("jwk", kp.publicKey);
+  const privJwk = await crypto.subtle.exportKey("jwk", kp.privateKey);
+  localStorage.setItem(storeKey, JSON.stringify({ pubJwk, privJwk }));
+  return kp;
+}
 
-    // 2. Export Public Key to Base64 to send to peers
-    async function exportPubKeyBase64() {
-      const exported = await window.crypto.subtle.exportKey("spki", myKeyPair.publicKey);
-      return btoa(String.fromCharCode(...new Uint8Array(exported)));
-    }
+async function publicKeyFingerprint(spkiB64) {
+  const hash = await crypto.subtle.digest("SHA-256", b64ToBuf(spkiB64));
+  const hex  = Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, "0")).join("");
+  return hex.slice(0, 32).match(/.{4}/g).join(" ").toUpperCase();
+}
 
-    // 3. Import Peer's Public Key
-    async function importPeerPubKey(base64Str) {
-      const binaryDer = Uint8Array.from(atob(base64Str), c => c.charCodeAt(0));
-      return await window.crypto.subtle.importKey(
-        "spki", binaryDer, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]
-      );
-    }
+async function exportPublicKey(key) {
+  return bufToB64(await crypto.subtle.exportKey("spki", key));
+}
+async function importPublicKey(b64) {
+  return crypto.subtle.importKey(
+    "spki", b64ToBuf(b64),
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    false, ["encrypt"]
+  );
+}
 
-    // 4. Generate an AES Key for the session
-    async function generateAES() {
-      return await window.crypto.subtle.generateKey(
-        { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
-      );
-    }
+async function encryptForRecipient(recipientPubKey, plainBytes) {
+  const aesKey  = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const iv      = crypto.getRandomValues(new Uint8Array(12));
+  const cipher  = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, plainBytes);
+  const rawAes  = await crypto.subtle.exportKey("raw", aesKey);
+  const encKey  = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, recipientPubKey, rawAes);
+  return { ciphertext: bufToB64(cipher), encryptedKey: bufToB64(encKey), iv: bufToB64(iv) };
+}
 
-    // 5. Encrypt AES Key with Peer's RSA Key (to send to them)
-    async function wrapAESKey(aesKey, peerPubKey) {
-      const rawAES = await window.crypto.subtle.exportKey("raw", aesKey);
-      const encryptedAES = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, peerPubKey, rawAES);
-      return btoa(String.fromCharCode(...new Uint8Array(encryptedAES)));
-    }
+async function decryptFromSender(encKeyB64, ivB64, cipherB64) {
+  const rawAes = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, myKeyPair.privateKey, b64ToBuf(encKeyB64));
+  const aesKey = await crypto.subtle.importKey("raw", rawAes, { name: "AES-GCM" }, false, ["decrypt"]);
+  return crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(b64ToBuf(ivB64)) }, aesKey, b64ToBuf(cipherB64));
+}
 
-    // 6. Decrypt Received AES Key with My RSA Private Key
-    async function unwrapAESKey(base64EncryptedAES) {
-      const encryptedBytes = Uint8Array.from(atob(base64EncryptedAES), c => c.charCodeAt(0));
-      const rawAES = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, myKeyPair.privateKey, encryptedBytes);
-      return await window.crypto.subtle.importKey("raw", rawAES, "AES-GCM", true, ["encrypt", "decrypt"]);
-    }
+// ── Public key fetch (promise-based, cached) ───────────────────────────────
+function getRecipientKey(username) {
+  if (cachedPubKeys[username]) return Promise.resolve(cachedPubKeys[username]);
+  return new Promise((resolve, reject) => {
+    pendingKeyRes[username] = { resolve, reject };
+    ws.send(JSON.stringify({ type: "get_key", username }));
+    setTimeout(() => {
+      if (pendingKeyRes[username]) {
+        delete pendingKeyRes[username];
+        reject(new Error("Key fetch timed out"));
+      }
+    }, 8000);
+  });
+}
 
-    // 7. Encrypt Payload using AES
-    async function encryptPayload(dataObj, aesKey) {
-      const jsonStr = JSON.stringify(dataObj);
-      const enc = new TextEncoder().encode(jsonStr);
-      const iv = window.crypto.getRandomValues(new Uint8Array(12));
-      const cipher = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aesKey, enc);
-      
-      const ivB64 = btoa(String.fromCharCode(...iv));
-      const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(cipher)));
-      return ivB64 + "." + cipherB64; // Package IV and Ciphertext
-    }
+// ── Firebase file upload ───────────────────────────────────────────────────
+async function uploadToFirebase(encryptedBytes, fileName) {
+  if (!firebaseStorage) throw new Error("Firebase not configured");
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2,9)}-${fileName}.enc`;
+  const ref = firebaseStorage.ref(`encrypted/${unique}`);
+  await ref.put(new Blob([encryptedBytes]));
+  return ref.getDownloadURL();
+}
 
-    // 8. Decrypt Payload using AES
-    async function decryptPayload(payloadStr, aesKey) {
-      const parts = payloadStr.split(".");
-      const iv = Uint8Array.from(atob(parts[0]), c => c.charCodeAt(0));
-      const cipher = Uint8Array.from(atob(parts[1]), c => c.charCodeAt(0));
-      
-      const decrypted = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, cipher);
-      const jsonStr = new TextDecoder().decode(decrypted);
-      return JSON.parse(jsonStr);
-    }
+// ── WebSocket & heartbeat ──────────────────────────────────────────────────
+function connect() {
+  if (ws && ws.readyState <= WebSocket.OPEN) return;
+  setConnIndicator("🟡 Connecting…", "#f0c040");
+  ws = new WebSocket(WS_URL);
 
-    // --- UI HELPER FUNCTIONS ---
+  ws.onopen = () => {
+    setConnIndicator("🟢 Connected", "#4caf50");
+    clearTimeout(reconnectTimer);
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, HEARTBEAT_MS);
+  };
 
-    function escapeHtml(str) {
-      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
+  ws.onmessage = async (evt) => {
+    // Ignore bare string pongs (protocol-level)
+    if (evt.data === "pong") return;
+    let data;
+    try { data = JSON.parse(evt.data); } catch { return; }
+    await handleServerMessage(data);
+  };
 
-    // Rich Text Formatting: Bold and Italic
-    function parseMarkdown(str) {
-      let safeStr = escapeHtml(str);
-      safeStr = safeStr.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-      safeStr = safeStr.replace(/\*(.*?)\*/g, '<i>$1</i>');
-      return safeStr;
-    }
+  ws.onclose = () => {
+    setConnIndicator("🔴 Disconnected — reconnecting in 5s…", "#e57373");
+    setStatus("Disconnected — reconnecting…");
+    clearInterval(heartbeatTimer);
+    reconnectTimer = setTimeout(connect, 5000);
+  };
 
-    function insertEmoji(emoji) {
-      messageInput.value += emoji;
-      messageInput.focus();
-    }
+  ws.onerror = () => ws.close();
+}
 
-    function setLoginStatus(text, isError = false) {
-      const el = document.getElementById("loginStatus");
-      el.textContent = text;
-      el.style.color = isError ? "#b91c1c" : "#444";
-    }
+// ── Message dispatcher ─────────────────────────────────────────────────────
+async function handleServerMessage(data) {
+  if (data.type === "pong") return;
 
-    function setComposerNote(text) {
-      document.getElementById("composerNote").textContent = text;
-    }
+  if (data.type === "typing") {
+    showTypingIndicator(data.from);
+    return;
+  }
 
-    // --- SOCKET LOGIC ---
+  if (data.type === "user_list") {
+    renderUserList(data.users);
+    return;
+  }
 
-    function connect(action) {
-      serverUrl = document.getElementById("serverInput").value.trim();
-      const username = document.getElementById("usernameInput").value.trim();
-      const password = document.getElementById("passwordInput").value;
+  if (data.type === "key_uploaded") return;
 
-      if (!serverUrl || !username || !password) {
-        setLoginStatus("Enter all fields.", true); return;
+  if (data.type === "public_key") {
+    try {
+      const fp    = await publicKeyFingerprint(data.publicKey);
+      const fpKey = `securechat_fp_${data.username}`;
+      const known = localStorage.getItem(fpKey);
+
+      if (known && known !== fp) {
+        addSystemMsg(`⚠ SECURITY: ${data.username}'s key fingerprint CHANGED — possible MITM.`);
+        addSystemMsg(`   Trusted: ${known}`);
+        addSystemMsg(`   Got:     ${fp}`);
+        addSystemMsg(`   Verify with ${data.username} out-of-band before sending.`);
+        pendingKeyRes[data.username]?.reject(new Error("Key fingerprint mismatch — refusing to send"));
+        delete pendingKeyRes[data.username];
+        return;
+      }
+      if (!known) {
+        localStorage.setItem(fpKey, fp);
+        addSystemMsg(`🔑 Trusted ${data.username}'s key on first use: ${fp}`);
       }
 
-      setLoginStatus("Connecting...");
-      socket = new WebSocket(serverUrl);
-
-      socket.onopen = async () => {
-        if(action === 'login') {
-            setLoginStatus("Generating RSA Keys for E2EE...");
-            await generateRSA();
-        }
-        socket.send(JSON.stringify({ type: action, username, password }));
-      };
-
-      socket.onmessage = async (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.type === "system" || data.type === "error") {
-            setLoginStatus(data.message, data.type === "error");
-            if(data.type === "system") setComposerNote(data.message);
-            return;
-        }
-
-        if (data.type === "login_success") {
-          currentUser = data.username;
-          document.getElementById("meLabel").textContent = currentUser;
-          document.getElementById("serverLabel").textContent = serverUrl;
-          loginScreen.classList.add("hidden");
-          chatScreen.classList.remove("hidden");
-          return;
-        }
-
-        if (data.type === "login_failed") return;
-
-        if (data.type === "user_list") {
-          onlineUsers = data.users;
-          renderUsers();
-          return;
-        }
-
-        // Key Exchange Step 1: Receiving Peer's Public Key
-        if (data.type === "public_key_exchange") {
-            const peerName = data.from;
-            peerPublicKeys[peerName] = await importPeerPubKey(data.key);
-            
-            // Generate AES, encrypt it, and send back
-            const aes = await generateAES();
-            sharedAESKeys[peerName] = aes;
-            const wrappedAES = await wrapAESKey(aes, peerPublicKeys[peerName]);
-            
-            socket.send(JSON.stringify({ type: "aes_key_exchange", to: peerName, encrypted_aes_key: wrappedAES }));
-            setComposerNote(`Secure E2EE connection established with ${peerName}`);
-            return;
-        }
-
-        // Key Exchange Step 2: Receiving Wrapped AES Key
-        if (data.type === "aes_key_exchange") {
-            const peerName = data.from;
-            sharedAESKeys[peerName] = await unwrapAESKey(data.encrypted_aes_key);
-            setComposerNote(`Secure E2EE connection established with ${peerName}`);
-            return;
-        }
-
-        // Decrypt incoming chat/file
-        if (data.type === "chat" || data.type === "file") {
-          const peerName = data.from === currentUser ? data.to : data.from;
-          if (!sharedAESKeys[peerName]) return; // Cannot decrypt
-          
-          try {
-              const decrypted = await decryptPayload(data.payload, sharedAESKeys[peerName]);
-              if(!conversations[peerName]) conversations[peerName] = [];
-              
-              conversations[peerName].push({
-                  from: data.from,
-                  kind: data.type,
-                  data: decrypted.data,
-                  filename: decrypted.filename,
-                  time: new Date().toLocaleTimeString()
-              });
-              renderUsers();
-              if (activeChatUser === peerName) renderMessages();
-          } catch(e) {
-              console.error("Decryption failed", e);
-          }
-        }
-      };
-
-      socket.onclose = () => setLoginStatus("Disconnected from server.", true);
+      const key = await importPublicKey(data.publicKey);
+      cachedPubKeys[data.username] = key;
+      pendingKeyRes[data.username]?.resolve(key);
+    } catch (e) {
+      pendingKeyRes[data.username]?.reject(e);
     }
+    delete pendingKeyRes[data.username];
+    return;
+  }
 
-    async function selectChat(user) {
-      activeChatUser = user;
-      if (!conversations[user]) conversations[user] = [];
-      renderUsers();
-      renderMessages();
+  if (data.type === "message") {
+    await receiveMessage(data);
+    return;
+  }
 
-      // Initiate E2EE Key Exchange if we don't have an AES key for them yet
-      if (!sharedAESKeys[user]) {
-          setComposerNote(`Establishing E2EE channel with ${user}...`);
-          const pubB64 = await exportPubKeyBase64();
-          socket.send(JSON.stringify({ type: "public_key_exchange", to: user, key: pubB64 }));
-      } else {
-          setComposerNote(`Secure channel active with ${user} 🔒`);
-      }
+  if (data.status === "error") {
+    // Show on auth screen if not yet logged in, otherwise as system message
+    if (document.getElementById("auth-screen").style.display !== "none") {
+      showAuthStatus(data.message, "#e57373");
+    } else {
+      addSystemMsg("⚠ " + data.message);
     }
+    return;
+  }
 
-    async function sendEncryptedData(type, innerData) {
-        if (!activeChatUser || !sharedAESKeys[activeChatUser]) {
-            alert("Waiting for secure connection to establish. Try again in a second."); return;
-        }
-        
-        const encryptedPayload = await encryptPayload(innerData, sharedAESKeys[activeChatUser]);
-        
-        socket.send(JSON.stringify({
-            type: type,
-            to: activeChatUser,
-            payload: encryptedPayload
+  if (data.status === "success") {
+    if (data.message === "Authentication successful.") {
+      await onAuthenticated();
+    } else {
+      showAuthStatus(data.message, "#4caf50");
+    }
+  }
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+async function authenticate(action) {
+  const user = document.getElementById("auth-username").value.trim();
+  const pass = document.getElementById("auth-password").value;
+  if (!user || !pass) { showAuthStatus("Enter username and password.", "orange"); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { showAuthStatus("Not connected to server.", "#e57373"); return; }
+
+  if (action === "register") {
+    showAuthStatus("Registering…", "#4fc3f7");
+    ws.send(JSON.stringify({ action: "register", username: user, password: pass }));
+    return;
+  }
+
+  document.getElementById("keygen-overlay").classList.add("show");
+  try {
+    myKeyPair = await getOrCreateKeyPair(user);
+  } catch {
+    document.getElementById("keygen-overlay").classList.remove("show");
+    showAuthStatus("Key generation failed.", "#e57373");
+    return;
+  }
+  document.getElementById("keygen-overlay").classList.remove("show");
+  myUsername = user;
+  ws.send(JSON.stringify({ action: "login", username: user, password: pass }));
+}
+
+async function onAuthenticated() {
+  const pubB64 = await exportPublicKey(myKeyPair.publicKey);
+  ws.send(JSON.stringify({ type: "upload_key", publicKey: pubB64 }));
+
+  const myFp = await publicKeyFingerprint(pubB64);
+
+  document.getElementById("auth-screen").style.display = "none";
+  document.getElementById("chat-screen").classList.add("show");
+  document.getElementById("my-name-label").textContent = "You: " + myUsername;
+  setStatus("🔒 End-to-end encrypted · Your fingerprint: " + myFp);
+  addSystemMsg("Connected. Your key fingerprint: " + myFp);
+  addSystemMsg("Share this with peers out-of-band to verify your identity.");
+}
+
+function logout() {
+  clearInterval(heartbeatTimer);
+  if (ws) ws.close();
+  location.reload();
+}
+
+// ── Typing indicator ───────────────────────────────────────────────────────
+function onTyping() {
+  clearTimeout(typingSendTimer);
+  if (!selectedUser || !ws || ws.readyState !== WebSocket.OPEN) return;
+  typingSendTimer = setTimeout(() => {
+    ws.send(JSON.stringify({ type: "typing", to: selectedUser }));
+  }, TYPING_DEBOUNCE_MS);
+}
+
+function showTypingIndicator(from) {
+  if (from !== selectedUser) return;
+  document.getElementById("typing-indicator").textContent = `${from} is typing…`;
+  clearTimeout(typingShowTimer[from]);
+  typingShowTimer[from] = setTimeout(() => {
+    document.getElementById("typing-indicator").textContent = "";
+  }, TYPING_CLEAR_MS);
+}
+
+// ── Sending ────────────────────────────────────────────────────────────────
+async function sendMessage() {
+  const text = document.getElementById("msg-input").value.trim();
+  if (!selectedUser) { alert("Select a user from the sidebar first."); return; }
+  if (!text && !pendingFile) return;
+
+  const btn = document.getElementById("send-btn");
+  btn.disabled = true;
+
+  try {
+    const recipientKey = await getRecipientKey(selectedUser);
+
+    if (pendingFile) {
+      if (FIREBASE_ENABLED && firebaseStorage) {
+        // Encrypt the file then store the encrypted blob on Firebase
+        const enc = await encryptForRecipient(recipientKey, pendingFile.data);
+        const rawCipher = b64ToBuf(enc.ciphertext);
+        const url = await uploadToFirebase(rawCipher, pendingFile.name);
+        ws.send(JSON.stringify({
+          type: "message", to: selectedUser,
+          contentType: "file", fileName: pendingFile.name,
+          encryptedKey: enc.encryptedKey, iv: enc.iv,
+          fileUrl: url
         }));
+      } else {
+        // Firebase not configured — send encrypted bytes inline (small files only)
+        const enc = await encryptForRecipient(recipientKey, pendingFile.data);
+        ws.send(JSON.stringify({
+          type: "message", to: selectedUser,
+          contentType: "file", fileName: pendingFile.name,
+          ...enc
+        }));
+      }
+      addBubble("out", `📎 ${escapeHtml(pendingFile.name)}`);
+      pendingFile = null;
+      document.getElementById("file-input").value = "";
+      document.getElementById("pending-file-label").textContent = "";
     }
 
-    document.getElementById("sendBtn").addEventListener("click", () => {
-      const text = messageInput.value.trim();
-      if (!text) return;
-      sendEncryptedData("chat", { data: text });
-      messageInput.value = "";
-    });
-
-    const ALLOWED_MIME_TYPES = new Set([
-      "image/jpeg", "image/png", "image/gif", "image/webp",
-      "application/pdf", "text/plain",
-      "application/zip", "application/x-zip-compressed",
-    ]);
-    const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
-
-    document.getElementById("fileInput").addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      if (!ALLOWED_MIME_TYPES.has(file.type)) {
-        setComposerNote(`File type "${file.type || "unknown"}" is not allowed.`);
-        e.target.value = "";
-        return;
-      }
-      if (file.size > MAX_FILE_BYTES) {
-        setComposerNote("File exceeds the 10 MB size limit.");
-        e.target.value = "";
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        sendEncryptedData("file", { filename: file.name, data: reader.result });
-      };
-      reader.readAsDataURL(file);
-      e.target.value = "";
-    });
-
-    // Renders
-    function renderUsers() {
-      const list = document.getElementById("userList");
-      list.innerHTML = "";
-      onlineUsers.filter(u => u !== currentUser).forEach(user => {
-        const item = document.createElement("div");
-        item.className = "user-item" + (user === activeChatUser ? " active" : "");
-        item.onclick = () => selectChat(user);
-        item.innerHTML = `<div class="name">${escapeHtml(user)}</div><div class="meta">Online</div>`;
-        list.appendChild(item);
-      });
+    if (text) {
+      const bytes = new TextEncoder().encode(text);
+      const enc = await encryptForRecipient(recipientKey, bytes);
+      ws.send(JSON.stringify({ type: "message", to: selectedUser, contentType: "text", ...enc }));
+      addBubble("out", escapeHtml(text));
+      document.getElementById("msg-input").value = "";
     }
+  } catch (e) {
+    addSystemMsg("⚠ Could not send: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
 
-    function renderMessages() {
-      messages.innerHTML = "";
-      if (!activeChatUser || conversations[activeChatUser].length === 0) {
-          messages.innerHTML = `<div class="empty-state">No messages yet.</div>`; return;
+async function receiveMessage(data) {
+  // Clear typing indicator from sender
+  document.getElementById("typing-indicator").textContent = "";
+  clearTimeout(typingShowTimer[data.from]);
+
+  try {
+    if (data.contentType === "file") {
+      if (data.fileUrl) {
+        // Fetch the encrypted blob from Firebase, decrypt, offer download
+        const resp = await fetch(data.fileUrl);
+        const encBytes = await resp.arrayBuffer();
+        // Re-encode fetched blob to base64 so decryptFromSender can handle it
+        const encB64 = bufToB64(encBytes);
+        const plain = await decryptFromSender(data.encryptedKey, data.iv, encB64);
+        offerFileDownload(plain, data.fileName, data.from);
+      } else {
+        // Inline fallback
+        const plain = await decryptFromSender(data.encryptedKey, data.iv, data.ciphertext);
+        offerFileDownload(plain, data.fileName, data.from);
       }
-      
-      conversations[activeChatUser].forEach(msg => {
-        const bubble = document.createElement("div");
-        bubble.className = "message " + (msg.from === currentUser ? "mine" : "theirs");
-        
-        let bodyHtml = msg.kind === "file" 
-            ? `<b>File:</b> ${escapeHtml(msg.filename)}<br><a href="${msg.data}" download="${escapeHtml(msg.filename)}">Download</a>`
-            : parseMarkdown(msg.data); // Rich Text parsing here
-
-        bubble.innerHTML = `<div class="meta">${escapeHtml(msg.from)} • ${msg.time}</div><div>${bodyHtml}</div>`;
-        messages.appendChild(bubble);
-      });
-      messages.scrollTop = messages.scrollHeight;
+    } else {
+      const plain = await decryptFromSender(data.encryptedKey, data.iv, data.ciphertext);
+      const text  = new TextDecoder().decode(plain);
+      addBubble("in", escapeHtml(text), data.from);
     }
+  } catch {
+    addBubble("in", "<em style='color:#e57373'>[Decryption failed — key mismatch?]</em>", data.from);
+  }
+}
 
-    const USERNAME_RE = /^[a-zA-Z0-9_\-]{1,32}$/;
+function offerFileDownload(plainBuf, fileName, from) {
+  const url  = URL.createObjectURL(new Blob([plainBuf]));
+  const link = `<a href="${url}" download="${escapeHtml(fileName || 'file')}">📎 ${escapeHtml(fileName || 'file')}</a>`;
+  addBubble("in", link, from);
+}
 
-    function validateCredentials(username, password, action) {
-      if (!username || !password) {
-        setLoginStatus("Enter all fields.", true); return false;
-      }
-      if (!USERNAME_RE.test(username)) {
-        setLoginStatus("Username: 1–32 characters, letters/numbers/hyphens/underscores only.", true); return false;
-      }
-      if (action === "register" && password.length < 8) {
-        setLoginStatus("Password must be at least 8 characters.", true); return false;
-      }
-      if (password.length > 128) {
-        setLoginStatus("Password too long.", true); return false;
-      }
-      return true;
-    }
+function handleFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
 
-    // Handlers
-    document.getElementById("loginBtn").onclick = () => {
-      const u = document.getElementById("usernameInput").value.trim();
-      const p = document.getElementById("passwordInput").value;
-      if (validateCredentials(u, p, "login")) connect("login");
+  if (file.size > MAX_FILE_BYTES) {
+    addSystemMsg(`⚠ File rejected: "${file.name}" exceeds the ${MAX_FILE_BYTES / 1024 / 1024} MB limit.`);
+    input.value = "";
+    return;
+  }
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (BLOCKED_EXTENSIONS.has(ext)) {
+    addSystemMsg(`⚠ File rejected: ".${ext}" files are blocked for safety.`);
+    input.value = "";
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    pendingFile = { name: file.name, data: e.target.result };
+    document.getElementById("pending-file-label").textContent = `📎 ${file.name}`;
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────────────
+function renderUserList(users) {
+  const ul = document.getElementById("user-list");
+  ul.innerHTML = "";
+  users.forEach(u => {
+    if (u === myUsername) return;
+    const li = document.createElement("li");
+    if (u === selectedUser) li.classList.add("active");
+    li.innerHTML = `<span class="dot"></span>${escapeHtml(u)}`;
+    li.onclick = () => selectUser(u);
+    ul.appendChild(li);
+  });
+}
+
+function selectUser(username) {
+  selectedUser = username;
+  document.getElementById("chat-header").textContent = `🔒 Chat with ${username}`;
+  document.querySelectorAll("#user-list li").forEach(li =>
+    li.classList.toggle("active", li.textContent.trim() === username)
+  );
+  document.getElementById("typing-indicator").textContent = "";
+}
+
+function addBubble(dir, htmlContent, from) {
+  const msgs = document.getElementById("messages");
+  const div  = document.createElement("div");
+  div.className = "bubble " + dir;
+  const meta = dir === "in" && from ? `<div class="meta">${escapeHtml(from)}</div>` : "";
+  div.innerHTML = meta + htmlContent;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function addSystemMsg(text) {
+  const msgs = document.getElementById("messages");
+  const div  = document.createElement("div");
+  div.className = "system-msg";
+  div.textContent = text;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function setStatus(text) {
+  document.getElementById("status-bar").textContent = text;
+}
+
+function setConnIndicator(text, color) {
+  const el = document.getElementById("conn-indicator");
+  el.textContent = text;
+  el.style.color = color;
+}
+
+function showAuthStatus(msg, color) {
+  const el = document.getElementById("auth-status");
+  el.textContent = msg;
+  el.style.color = color;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── Emoji picker ───────────────────────────────────────────────────────────
+(function buildEmojiPicker() {
+  const picker = document.getElementById("emoji-picker");
+  EMOJIS.forEach(e => {
+    const span = document.createElement("span");
+    span.textContent = e;
+    span.onclick = () => {
+      document.getElementById("msg-input").value += e;
+      document.getElementById("msg-input").focus();
     };
-    document.getElementById("regBtn").onclick = () => {
-      const u = document.getElementById("usernameInput").value.trim();
-      const p = document.getElementById("passwordInput").value;
-      if (validateCredentials(u, p, "register")) connect("register");
-    };
+    picker.appendChild(span);
+  });
+})();
 
-    // Allow Enter key to submit login
-    document.getElementById("passwordInput").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") document.getElementById("loginBtn").click();
-    });
+function toggleEmoji() {
+  document.getElementById("emoji-picker").classList.toggle("show");
+}
 
-    document.getElementById("messageInput").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") document.getElementById("sendBtn").click();
-    });
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#emoji-picker") && !e.target.closest(".icon-btn[title='Emoji']")) {
+    document.getElementById("emoji-picker").classList.remove("show");
+  }
+});
 
-    document.getElementById("fileBtn").onclick = () => document.getElementById("fileInput").click();
-  </script>
+// ── Boot ───────────────────────────────────────────────────────────────────
+connect();
+</script>
 </body>
 </html>
