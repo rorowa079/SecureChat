@@ -8,3 +8,4 @@ certs/
 logs/
 *.log
 securechat.db
+*.zip
